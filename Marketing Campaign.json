@@ -1,0 +1,611 @@
+{
+  "name": "Marketing Campaign",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://data.mixpanel.com/api/2.0/export",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "from_date",
+              "value": "2017-01-01"
+            },
+            {
+              "name": "to_date",
+              "value": "={{ new Date(Date.now() - 86400000).toISOString().split('T')[0] }}"
+            },
+            {
+              "name": "where",
+              "value": "=properties[\"tenant_email_domain\"] == \"{{ $json.properties.domain }}\""
+            },
+            {
+              "name": "event",
+              "value": "[\"Enable Bill Pay\", \"Bill Pay Paid\", \"Enable Zeni Accounts\", \"Onboarding Link A Bank Account Success\", \"Deposit Accounts Transfer Created\"]"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "9d41a4ed-3856-4e6e-bb70-69502d178703",
+      "name": "GET Events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        520
+      ],
+      "alwaysOutputData": false,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "IRRasnSLxO08AwkO",
+          "name": "MixPanel"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "5720d7a7-8a79-407f-9f23-c85f4313f00b",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/companies/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer HUBSPOT_SECRET"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filterGroups\": [\n    {\n      \"filters\": [\n        {\n          \"propertyName\": \"customer_health\",\n          \"operator\": \"IN\",\n          \"values\": [\"🟣 Onboarding\", \"🟢 Live\", \"🔵 In Renewal\", \"🟡 At Risk\", \"🔴 High Risk\"]\n        },\n        {\n          \"propertyName\": \"mixpanel_trigger\",\n          \"operator\": \"EQ\",\n          \"value\": 1\n        }\n      ]\n    }\n  ],\n  \"properties\": [\"domain\"],\n  \"limit\": 200\n}\n",
+        "options": {}
+      },
+      "id": "0fda56ec-d1ad-43c9-aada-0aea3fff762f",
+      "name": "Customers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -400,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "results",
+        "options": {}
+      },
+      "id": "081b67d5-0317-4d70-9189-d9b12481bc67",
+      "name": "Split Out",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        20,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": "=1",
+        "options": {}
+      },
+      "id": "33ef16bf-9bd4-4267-a940-c09a5b5470ae",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        220,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.all();\nconst eventNames = [\n    \"Enable Bill Pay\", \n    \"Bill Pay Paid\", \n    \"Enable Zeni Accounts\", \n    \"Onboarding Link A Bank Account Success\", \n    \"Deposit Accounts Transfer Created\"\n];\nconst eventCounts = {};\nlet enableBillPayDate = null;\nlet enableZeniAccountsDate = null;\nlet recentOnboardingBankTimestamp = null;\nlet connectionStatusExternalAccount = \"Not Connected\";\nlet daysSinceLastConnectedAccount = 0;\nlet billPayUsed = \"False\";\nlet zeniAccountDaysSince = 0;\nconst eventData = eventNames.reduce((obj, name) => {\n    obj[name] = [];\n    return obj;\n}, {});\ndata.forEach(item => {\n    const jsonString = item.json.data;\n    const jsonStrings = jsonString.split('\\n'); jsonStrings.forEach(jsonStr => {\n        try {\n            const jsonData = JSON.parse(jsonStr);\n            const eventName = jsonData.event;\n            const eventProps = jsonData.properties;\n            if (eventData[eventName]) {\n              eventData[eventName].push(eventProps);\n            }\n        } catch (error) {\n            console.error(\"Error parsing JSON:\", error, jsonStr);\n        }\n    });\n});\nfor (const [name, propertiesList] of Object.entries(eventData)) {\n    eventCounts[name] = propertiesList.length;\n    propertiesList.sort((a, b) => (a.time || 0) - (b.time || 0));\n\n    if (name === \"Enable Bill Pay\" && propertiesList.length > 0) {\n        enableBillPayDate = new Date(propertiesList[0].time * 1000).toISOString();\n    }\n    if (name === \"Enable Zeni Accounts\" && propertiesList.length > 0) {\n        enableZeniAccountsDate = new Date(propertiesList[0].time * 1000).toISOString();\n        zeniAccountDaysSince = Math.floor((Date.now() - new Date(enableZeniAccountsDate)) / (1000 * 60 * 60 * 24));\n    }\n    if (name === \"Onboarding Link A Bank Account Success\" && propertiesList.length > 0) {\n        recentOnboardingBankTimestamp = new Date(propertiesList[propertiesList.length - 1].time * 1000).toISOString();\n        daysSinceLastConnectedAccount = Math.floor((Date.now() - new Date(recentOnboardingBankTimestamp)) / (1000 * 60 * 60 * 24));\n        connectionStatusExternalAccount = \"Connected\";\n    }\n}\n\nif (eventCounts[\"Bill Pay Paid\"] > 0) {\n    billPayUsed = \"True\";\n}\n\nenableBillPayDate = String(enableBillPayDate || 0)\nenableZeniAccountsDate = String(enableZeniAccountsDate || 0)\nrecentOnboardingBankTimestamp = String(recentOnboardingBankTimestamp || 0)\n\nresult = {\n      \"enableBillPayDate\": enableBillPayDate,\n      \"Number of Bill Pay Paid\": eventCounts[\"Bill Pay Paid\"],\n      \"billPayUsed\": billPayUsed,\n      \"enableZeniAccountsDate\": enableZeniAccountsDate,\n      \"zeniAccountDaysSince\": zeniAccountDaysSince,\n      \"recentOnboardingBankTimestamp\": recentOnboardingBankTimestamp,\n      \"connectionStatusExternalAccount\": connectionStatusExternalAccount,\n      \"daysSinceLastConnectedAccount\": daysSinceLastConnectedAccount,\n      \"depositAccountsTransferCount\": eventCounts[\"Deposit Accounts Transfer Created\"] || 0\n    }\nreturn result;"
+      },
+      "id": "06c7d856-9ae1-43e5-8624-1f4922a13f25",
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1180,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "minutes"
+      },
+      "id": "f6432568-9b30-4a0b-a06a-0f8c97d697c4",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1860,
+        520
+      ],
+      "webhookId": "19d45730-a780-484a-a9b0-1b387c17c4b6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "aecf9aaf-96d1-45d9-be14-b08c423e4cc9",
+              "leftValue": "={{ $json.headers['content-length'] }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ec8ddac9-1664-425e-af7c-ae106de9419e",
+      "name": "If",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        740,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.hubapi.com/crm/v3/objects/companies/{{ $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer HUBSPOT_SECRET"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"properties\": {\n\"bill_pay_used\": \"{{ $json.billPayUsed }}\",\n\"connection_status_of_external_accounts\": \"{{ $json.connectionStatusExternalAccount }}\",\n\"days_since_first_account_opened\": {{ $json.zeniAccountDaysSince }},\n\"days_since_last_connected_account\": {{ $json.daysSinceLastConnectedAccount }},\n\"first_account_opening_date\": \"{{ $json.enableZeniAccountsDate }}\",\n\"total_number_of_bill_paid\": {{ $json['Number of Bill Pay Paid'] }},\n\"number_of_direct_deposit\": {{ $json.depositAccountsTransferCount }},\n\"first_bill_pay_enabled_date\": \"{{ $json.enableBillPayDate }}\",\n\"last_account_connected_date\": \"{{ $json.recentOnboardingBankTimestamp }}\",\n\"mixpanel_trigger\": 0\n  }\n}",
+        "options": {}
+      },
+      "id": "12c43c08-70bd-4959-9da8-1aaedf805036",
+      "name": "Update Company",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1620,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "75d87b7c-76ab-4f32-9c8f-86cc05a102d6",
+              "name": "domain",
+              "value": "={{ $('Split Out').item.json.properties.domain }}",
+              "type": "string"
+            },
+            {
+              "id": "91fd7177-137d-458e-b372-d3aecf2cdc56",
+              "name": "headers",
+              "value": "={{ $json.headers }}",
+              "type": "object"
+            },
+            {
+              "id": "25e57cd0-55f2-4fa6-91bd-cda2958fafc1",
+              "name": "data",
+              "value": "={{ $json.data }}",
+              "type": "string"
+            },
+            {
+              "id": "34ec0194-5aaa-4093-bf5f-a43fa037f30e",
+              "name": "id",
+              "value": "={{ $('Split Out').item.json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a0adce1c-1f75-4cef-9de4-ef36af6005e9",
+      "name": "Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        700,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f1510f01-472c-42c4-9023-e0a7b3697a13",
+              "name": "data",
+              "value": "={{ $json.data }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8da7acf4-57e6-4884-b3b1-f91da0d220f1",
+      "name": "I Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        960,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "81777942-7ffa-47e0-a416-b40f073e91f2",
+              "name": "domain",
+              "value": "={{ $('Loop Over Items').item.json.properties.domain }}",
+              "type": "string"
+            },
+            {
+              "id": "b04ce419-8d7a-4589-b2e7-0936b7db0f32",
+              "name": "enableBillPayDate",
+              "value": "={{ $json.enableBillPayDate }}",
+              "type": "string"
+            },
+            {
+              "id": "ca843a6c-873a-4dc1-b6f5-012ad447e866",
+              "name": "Number of Bill Pay Paid",
+              "value": "={{ $json['Number of Bill Pay Paid'] }}",
+              "type": "number"
+            },
+            {
+              "id": "75ee9fcf-056c-44cb-a320-15d2e89be246",
+              "name": "billPayUsed",
+              "value": "={{ $json.billPayUsed }}",
+              "type": "string"
+            },
+            {
+              "id": "c9cf7c8d-79c9-41d5-ac67-aacb8f79b86f",
+              "name": "enableZeniAccountsDate",
+              "value": "={{ $json.enableZeniAccountsDate }}",
+              "type": "string"
+            },
+            {
+              "id": "8488237f-d035-437b-a0ad-384350a232e8",
+              "name": "zeniAccountDaysSince",
+              "value": "={{ $json.zeniAccountDaysSince }}",
+              "type": "number"
+            },
+            {
+              "id": "c8682e8f-0fd5-4e0b-8c0c-624a671a4abb",
+              "name": "recentOnboardingBankTimestamp",
+              "value": "={{ $json.recentOnboardingBankTimestamp }}",
+              "type": "string"
+            },
+            {
+              "id": "ab26e10f-5e36-4004-92b8-673f5aa1b021",
+              "name": "connectionStatusExternalAccount",
+              "value": "={{ $json.connectionStatusExternalAccount }}",
+              "type": "string"
+            },
+            {
+              "id": "59e8eabe-e921-4c8a-ac19-1d5bf7929f01",
+              "name": "daysSinceLastConnectedAccount",
+              "value": "={{ $json.daysSinceLastConnectedAccount }}",
+              "type": "number"
+            },
+            {
+              "id": "455cbd52-7bc2-4481-bc72-0bee303443fe",
+              "name": "depositAccountsTransferCount",
+              "value": "={{ $json.depositAccountsTransferCount }}",
+              "type": "number"
+            },
+            {
+              "id": "fda0fb24-c33b-4700-86a7-c9e1021375da",
+              "name": "id",
+              "value": "={{ $('Split Out').item.json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6d4d9522-0acf-4302-a458-cf91c4900833",
+      "name": "Final Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1400,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "382083d8-7a1e-4761-8116-3ec4bbbb3835",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ac9fa9aa-88e2-4a8a-ba90-a025c701527a",
+      "name": "If1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -180,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.hubapi.com/crm/v3/objects/companies/{{ $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer HUBSPOT_SECRET"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"properties\": {\n\"mixpanel_trigger\": 2\n  }\n}",
+        "options": {}
+      },
+      "id": "27d30fcd-12e5-45a3-9a71-57fd06b1ce95",
+      "name": "Update Trigger",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        200
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customers": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Customers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GET Dashboard Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Dashboard Events": {
+      "main": [
+        [
+          {
+            "node": "Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Final Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Update Trigger",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "I Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "I Data": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Data": {
+      "main": [
+        [
+          {
+            "node": "Update Company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Company": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Trigger": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b2c39d19-135c-455b-8f7e-98fbf8c7f611",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "47efb329a2ed99679b35002ee1d3d7dc07f77bda3571d2590fba066438a994f5"
+  },
+  "id": "natx0LNnNgBFWInD",
+  "tags": []
+}
