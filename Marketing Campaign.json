@@ -1,5 +1,5 @@
 {
-  "name": "Marketing Campaign",
+  "name": "My workflow",
   "nodes": [
     {
       "parameters": {
@@ -36,13 +36,13 @@
           }
         }
       },
-      "id": "9d41a4ed-3856-4e6e-bb70-69502d178703",
+      "id": "36707174-f883-4c47-b857-7b954bfd3176",
       "name": "GET Events",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        480,
-        520
+        -1260,
+        1140
       ],
       "alwaysOutputData": false,
       "credentials": {
@@ -54,13 +54,13 @@
     },
     {
       "parameters": {},
-      "id": "5720d7a7-8a79-407f-9f23-c85f4313f00b",
+      "id": "11c7a7ca-401a-45c9-8787-6a3594db271e",
       "name": "Start",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -600,
-        500
+        -2340,
+        1120
       ]
     },
     {
@@ -85,13 +85,13 @@
         "jsonBody": "={\n  \"filterGroups\": [\n    {\n      \"filters\": [\n        {\n          \"propertyName\": \"customer_health\",\n          \"operator\": \"IN\",\n          \"values\": [\"🟣 Onboarding\", \"🟢 Live\", \"🔵 In Renewal\", \"🟡 At Risk\", \"🔴 High Risk\"]\n        },\n        {\n          \"propertyName\": \"mixpanel_trigger\",\n          \"operator\": \"EQ\",\n          \"value\": 1\n        }\n      ]\n    }\n  ],\n  \"properties\": [\"domain\"],\n  \"limit\": 200\n}\n",
         "options": {}
       },
-      "id": "0fda56ec-d1ad-43c9-aada-0aea3fff762f",
+      "id": "8cd811b4-c911-4000-ace6-3cf9db428978",
       "name": "Customers",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -400,
-        500
+        -2140,
+        1120
       ]
     },
     {
@@ -99,13 +99,13 @@
         "fieldToSplitOut": "results",
         "options": {}
       },
-      "id": "081b67d5-0317-4d70-9189-d9b12481bc67",
+      "id": "376c2c1b-04f3-479e-b866-873a2371b236",
       "name": "Split Out",
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        20,
-        500
+        -1720,
+        1120
       ]
     },
     {
@@ -113,26 +113,26 @@
         "batchSize": "=1",
         "options": {}
       },
-      "id": "33ef16bf-9bd4-4267-a940-c09a5b5470ae",
+      "id": "3ea4b30b-4c2f-4bad-8219-591df0bdb899",
       "name": "Loop Over Items",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        220,
-        500
+        -1520,
+        1120
       ]
     },
     {
       "parameters": {
         "jsCode": "const data = $input.all();\nconst eventNames = [\n    \"Enable Bill Pay\", \n    \"Bill Pay Paid\", \n    \"Enable Zeni Accounts\", \n    \"Onboarding Link A Bank Account Success\", \n    \"Deposit Accounts Transfer Created\"\n];\nconst eventCounts = {};\nlet enableBillPayDate = null;\nlet enableZeniAccountsDate = null;\nlet recentOnboardingBankTimestamp = null;\nlet connectionStatusExternalAccount = \"Not Connected\";\nlet daysSinceLastConnectedAccount = 0;\nlet billPayUsed = \"False\";\nlet zeniAccountDaysSince = 0;\nconst eventData = eventNames.reduce((obj, name) => {\n    obj[name] = [];\n    return obj;\n}, {});\ndata.forEach(item => {\n    const jsonString = item.json.data;\n    const jsonStrings = jsonString.split('\\n'); jsonStrings.forEach(jsonStr => {\n        try {\n            const jsonData = JSON.parse(jsonStr);\n            const eventName = jsonData.event;\n            const eventProps = jsonData.properties;\n            if (eventData[eventName]) {\n              eventData[eventName].push(eventProps);\n            }\n        } catch (error) {\n            console.error(\"Error parsing JSON:\", error, jsonStr);\n        }\n    });\n});\nfor (const [name, propertiesList] of Object.entries(eventData)) {\n    eventCounts[name] = propertiesList.length;\n    propertiesList.sort((a, b) => (a.time || 0) - (b.time || 0));\n\n    if (name === \"Enable Bill Pay\" && propertiesList.length > 0) {\n        enableBillPayDate = new Date(propertiesList[0].time * 1000).toISOString();\n    }\n    if (name === \"Enable Zeni Accounts\" && propertiesList.length > 0) {\n        enableZeniAccountsDate = new Date(propertiesList[0].time * 1000).toISOString();\n        zeniAccountDaysSince = Math.floor((Date.now() - new Date(enableZeniAccountsDate)) / (1000 * 60 * 60 * 24));\n    }\n    if (name === \"Onboarding Link A Bank Account Success\" && propertiesList.length > 0) {\n        recentOnboardingBankTimestamp = new Date(propertiesList[propertiesList.length - 1].time * 1000).toISOString();\n        daysSinceLastConnectedAccount = Math.floor((Date.now() - new Date(recentOnboardingBankTimestamp)) / (1000 * 60 * 60 * 24));\n        connectionStatusExternalAccount = \"Connected\";\n    }\n}\n\nif (eventCounts[\"Bill Pay Paid\"] > 0) {\n    billPayUsed = \"True\";\n}\n\nenableBillPayDate = String(enableBillPayDate || 0)\nenableZeniAccountsDate = String(enableZeniAccountsDate || 0)\nrecentOnboardingBankTimestamp = String(recentOnboardingBankTimestamp || 0)\n\nresult = {\n      \"enableBillPayDate\": enableBillPayDate,\n      \"Number of Bill Pay Paid\": eventCounts[\"Bill Pay Paid\"],\n      \"billPayUsed\": billPayUsed,\n      \"enableZeniAccountsDate\": enableZeniAccountsDate,\n      \"zeniAccountDaysSince\": zeniAccountDaysSince,\n      \"recentOnboardingBankTimestamp\": recentOnboardingBankTimestamp,\n      \"connectionStatusExternalAccount\": connectionStatusExternalAccount,\n      \"daysSinceLastConnectedAccount\": daysSinceLastConnectedAccount,\n      \"depositAccountsTransferCount\": eventCounts[\"Deposit Accounts Transfer Created\"] || 0\n    }\nreturn result;"
       },
-      "id": "06c7d856-9ae1-43e5-8624-1f4922a13f25",
+      "id": "24bd6c6b-a0e4-4fac-a284-fc960d1d5dd6",
       "name": "Code",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1180,
-        520
+        -560,
+        1140
       ]
     },
     {
@@ -140,13 +140,13 @@
         "amount": 1,
         "unit": "minutes"
       },
-      "id": "f6432568-9b30-4a0b-a06a-0f8c97d697c4",
+      "id": "66bab922-8974-4f2c-a03e-773590d62aef",
       "name": "Wait",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        1860,
-        520
+        120,
+        1140
       ],
       "webhookId": "19d45730-a780-484a-a9b0-1b387c17c4b6"
     },
@@ -174,13 +174,13 @@
         },
         "options": {}
       },
-      "id": "ec8ddac9-1664-425e-af7c-ae106de9419e",
+      "id": "0f1f4248-fdb8-4481-b397-756b06219a8e",
       "name": "If",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        740,
-        220
+        -1000,
+        840
       ]
     },
     {
@@ -205,13 +205,13 @@
         "jsonBody": "={\n  \"properties\": {\n\"bill_pay_used\": \"{{ $json.billPayUsed }}\",\n\"connection_status_of_external_accounts\": \"{{ $json.connectionStatusExternalAccount }}\",\n\"days_since_first_account_opened\": {{ $json.zeniAccountDaysSince }},\n\"days_since_last_connected_account\": {{ $json.daysSinceLastConnectedAccount }},\n\"first_account_opening_date\": \"{{ $json.enableZeniAccountsDate }}\",\n\"total_number_of_bill_paid\": {{ $json['Number of Bill Pay Paid'] }},\n\"number_of_direct_deposit\": {{ $json.depositAccountsTransferCount }},\n\"first_bill_pay_enabled_date\": \"{{ $json.enableBillPayDate }}\",\n\"last_account_connected_date\": \"{{ $json.recentOnboardingBankTimestamp }}\",\n\"mixpanel_trigger\": 0\n  }\n}",
         "options": {}
       },
-      "id": "12c43c08-70bd-4959-9da8-1aaedf805036",
+      "id": "6a23614d-9089-4dcf-b1ab-b2ef1bd2553b",
       "name": "Update Company",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1620,
-        520
+        -120,
+        1140
       ]
     },
     {
@@ -246,13 +246,13 @@
         },
         "options": {}
       },
-      "id": "a0adce1c-1f75-4cef-9de4-ef36af6005e9",
+      "id": "52a8ec31-5c10-45e4-8541-1ac389ed3032",
       "name": "Data",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        700,
-        520
+        -1040,
+        1140
       ]
     },
     {
@@ -269,13 +269,13 @@
         },
         "options": {}
       },
-      "id": "8da7acf4-57e6-4884-b3b1-f91da0d220f1",
+      "id": "a0ebc13b-121b-43e9-ac25-299a652f83d2",
       "name": "I Data",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        960,
-        520
+        -780,
+        1140
       ]
     },
     {
@@ -352,13 +352,13 @@
         },
         "options": {}
       },
-      "id": "6d4d9522-0acf-4302-a458-cf91c4900833",
+      "id": "704d4772-f898-4a98-953d-e91fdcaec08e",
       "name": "Final Data",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1400,
-        520
+        -340,
+        1140
       ]
     },
     {
@@ -385,13 +385,13 @@
         },
         "options": {}
       },
-      "id": "ac9fa9aa-88e2-4a8a-ba90-a025c701527a",
+      "id": "61b659c7-3d70-476d-921a-7de0f43d0156",
       "name": "If1",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -180,
-        500
+        -1920,
+        1120
       ]
     },
     {
@@ -416,13 +416,13 @@
         "jsonBody": "={\n  \"properties\": {\n\"mixpanel_trigger\": 2\n  }\n}",
         "options": {}
       },
-      "id": "27d30fcd-12e5-45a3-9a71-57fd06b1ce95",
+      "id": "0e53bd05-d08b-46b4-9060-4f6fc68faf7b",
       "name": "Update Trigger",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1360,
-        200
+        -380,
+        820
       ]
     }
   ],
@@ -472,18 +472,7 @@
         ],
         [
           {
-            "node": "GET Dashboard Events",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "GET Dashboard Events": {
-      "main": [
-        [
-          {
-            "node": "Data",
+            "node": "GET Events",
             "type": "main",
             "index": 0
           }
@@ -595,17 +584,28 @@
           }
         ]
       ]
+    },
+    "GET Events": {
+      "main": [
+        [
+          {
+            "node": "Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "b2c39d19-135c-455b-8f7e-98fbf8c7f611",
+  "versionId": "6fc91cb8-d34f-4c6c-9b7d-a1984e17d9c8",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "47efb329a2ed99679b35002ee1d3d7dc07f77bda3571d2590fba066438a994f5"
   },
-  "id": "natx0LNnNgBFWInD",
+  "id": "iFSR8opfspIuTPvV",
   "tags": []
 }
